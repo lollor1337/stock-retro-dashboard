@@ -7,4 +7,4 @@ textblob
 finnhub-python
 numpy
 lxml
-requests
+curl_cffi
