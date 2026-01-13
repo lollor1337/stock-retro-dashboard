@@ -10,10 +10,9 @@ import numpy as np
 import time
 
 # --- Konfiguration ---
-st.set_page_config(page_title="Profi Aktien-Analyse 41.0 (RETRO MODE)", layout="wide")
+st.set_page_config(page_title="Profi Aktien-Analyse 41.1 (Cloud Fix)", layout="wide")
 
 # --- RETRO CSS INJECTION ---
-# Das hier ist das Herzstück des neuen Designs
 st.markdown("""
 <style>
     /* Import von coolen Retro-Fonts */
@@ -204,13 +203,24 @@ def get_news_from_finnhub(api_key, ticker, company_name):
     except Exception as e:
         return [], ticker
 
+# UPDATED: CACHING FIX & ERROR HANDLING
+# ttl=14400 bedeutet: Daten werden 4 Stunden gespeichert. Verhindert API-Spam & Blocks.
+@st.cache_data(ttl=14400, show_spinner=False)
 def get_data_and_indicators(ticker, api_key, company_name):
     try:
         stock = yf.Ticker(ticker)
-        # UPDATED: Wir laden 'max', damit auch 5 Jahre/All Time funktionieren
+        # Wir laden 'max', damit auch 5 Jahre/All Time funktionieren
         df = stock.history(period="max", interval="1d")
         
-        if df.empty: return None, None, None, None
+        if df.empty: 
+            # Versuche alternativen Suffix falls .DE Probleme macht
+            if ".DE" in ticker:
+                 time.sleep(0.5)
+                 # Manchmal hilft es, das Suffix zu droppen oder anders zu testen, 
+                 # aber oft ist df.empty ein echtes "Nicht gefunden".
+                 # Wir geben hier None zurück, damit der Error unten gefangen wird.
+                 return None, None, None, None
+            return None, None, None, None
 
         # Indikatoren (berechnet auf der vollen Historie für Genauigkeit)
         df['EMA_50'] = ta.ema(df['Close'], length=50)
@@ -234,10 +244,14 @@ def get_data_and_indicators(ticker, api_key, company_name):
         df['OBV_EMA'] = ta.ema(df['OBV'], length=20)
         df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
         
+        # News holen wir OHNE Cache oder separat, aber hier ist es okay.
         news_list, used_ticker_for_news = get_news_from_finnhub(api_key, ticker, company_name)
 
         return df, stock.info, news_list, used_ticker_for_news
-    except Exception as e: return None, None, None, None
+    except Exception as e:
+        # Debugging: Gib den Fehlertext zurück, damit wir ihn sehen
+        print(f"DEBUG ERROR: {e}")
+        return None, f"Error: {str(e)}", None, None
 
 def calculate_smart_score(df, news_list):
     score = 0
@@ -389,7 +403,12 @@ if selected_ticker and st.session_state.analysis_active:
         
         df, info, news_data, used_news_ticker = get_data_and_indicators(selected_ticker, finnhub_api_key, selected_name)
         
-        if df is not None and not df.empty:
+        # DEBUG: Wenn info ein String ist (Fehlermeldung), zeigen wir sie an.
+        if isinstance(info, str) and "Error" in info:
+             st.error(f"❌ Technischer Fehler bei der Datenabfrage: {info}")
+             st.info("Tipp: Versuche es in 1 Minute noch einmal (Yahoo API Limit).")
+        
+        elif df is not None and not df.empty:
             raw_score, confidence, pattern_list, cats = calculate_smart_score(df, news_data)
             current_price = df['Close'].iloc[-1]
             currency = info.get('currency', '')
