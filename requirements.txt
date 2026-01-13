@@ -1,8 +1,9 @@
 streamlit
-yfinance
+yfinance>=0.2.40
 pandas
 pandas_ta
 plotly
 textblob
 finnhub-python
 numpy
+lxml
