@@ -8,9 +8,10 @@ import finnhub
 from datetime import datetime, timedelta
 import numpy as np
 import time
+import requests # WICHTIG: Für den Stealth-Modus
 
 # --- Konfiguration ---
-st.set_page_config(page_title="Profi Aktien-Analyse 41.1 (Cloud Fix)", layout="wide")
+st.set_page_config(page_title="Profi Aktien-Analyse 41.2 (Stealth Mode)", layout="wide")
 
 # --- RETRO CSS INJECTION ---
 st.markdown("""
@@ -203,23 +204,23 @@ def get_news_from_finnhub(api_key, ticker, company_name):
     except Exception as e:
         return [], ticker
 
-# UPDATED: CACHING FIX & ERROR HANDLING
-# ttl=14400 bedeutet: Daten werden 4 Stunden gespeichert. Verhindert API-Spam & Blocks.
+# UPDATED: STEALTH MODE & CACHING
 @st.cache_data(ttl=14400, show_spinner=False)
 def get_data_and_indicators(ticker, api_key, company_name):
     try:
-        stock = yf.Ticker(ticker)
-        # Wir laden 'max', damit auch 5 Jahre/All Time funktionieren
+        # 1. Wir bauen eine Fake-Browser-Session
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        
+        # 2. Wir übergeben die Session an yfinance
+        stock = yf.Ticker(ticker, session=session)
+        
+        # 3. Download
         df = stock.history(period="max", interval="1d")
         
         if df.empty: 
-            # Versuche alternativen Suffix falls .DE Probleme macht
-            if ".DE" in ticker:
-                 time.sleep(0.5)
-                 # Manchmal hilft es, das Suffix zu droppen oder anders zu testen, 
-                 # aber oft ist df.empty ein echtes "Nicht gefunden".
-                 # Wir geben hier None zurück, damit der Error unten gefangen wird.
-                 return None, None, None, None
             return None, None, None, None
 
         # Indikatoren (berechnet auf der vollen Historie für Genauigkeit)
@@ -244,13 +245,11 @@ def get_data_and_indicators(ticker, api_key, company_name):
         df['OBV_EMA'] = ta.ema(df['OBV'], length=20)
         df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=14)
         
-        # News holen wir OHNE Cache oder separat, aber hier ist es okay.
         news_list, used_ticker_for_news = get_news_from_finnhub(api_key, ticker, company_name)
 
         return df, stock.info, news_list, used_ticker_for_news
     except Exception as e:
-        # Debugging: Gib den Fehlertext zurück, damit wir ihn sehen
-        print(f"DEBUG ERROR: {e}")
+        # Debugging für die Cloud
         return None, f"Error: {str(e)}", None, None
 
 def calculate_smart_score(df, news_list):
@@ -394,7 +393,6 @@ with c_btn:
         st.session_state.analysis_active = True
 
 with c_help:
-    # UPDATED: Nur ein Leerzeichen als Inhalt -> Streamlit rendert nur das Fragezeichen
     st.markdown(" ", help=motorhaube_text)
 
 # Analyse läuft, wenn Button gedrückt wurde ODER Session State aktiv ist
@@ -406,7 +404,7 @@ if selected_ticker and st.session_state.analysis_active:
         # DEBUG: Wenn info ein String ist (Fehlermeldung), zeigen wir sie an.
         if isinstance(info, str) and "Error" in info:
              st.error(f"❌ Technischer Fehler bei der Datenabfrage: {info}")
-             st.info("Tipp: Versuche es in 1 Minute noch einmal (Yahoo API Limit).")
+             st.warning("⚠️ Cloud-Sperre erkannt. Die App nutzt jetzt einen 'Stealth Mode', aber manchmal hilft nur 2 Minuten warten.")
         
         elif df is not None and not df.empty:
             raw_score, confidence, pattern_list, cats = calculate_smart_score(df, news_data)
