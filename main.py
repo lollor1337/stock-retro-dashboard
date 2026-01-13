@@ -8,10 +8,10 @@ import finnhub
 from datetime import datetime, timedelta
 import numpy as np
 import time
-import requests # WICHTIG: Für den Stealth-Modus
+# requests import entfernt, da yfinance das jetzt intern via curl_cffi macht
 
 # --- Konfiguration ---
-st.set_page_config(page_title="Profi Aktien-Analyse 41.2 (Stealth Mode)", layout="wide")
+st.set_page_config(page_title="Profi Aktien-Analyse 41.3 (Native Stealth)", layout="wide")
 
 # --- RETRO CSS INJECTION ---
 st.markdown("""
@@ -204,26 +204,21 @@ def get_news_from_finnhub(api_key, ticker, company_name):
     except Exception as e:
         return [], ticker
 
-# UPDATED: STEALTH MODE & CACHING
+# UPDATED: BACK TO BASICS (With Caching)
+# Wir entfernen die manuelle Session, da yfinance jetzt curl_cffi nutzen will.
 @st.cache_data(ttl=14400, show_spinner=False)
 def get_data_and_indicators(ticker, api_key, company_name):
     try:
-        # 1. Wir bauen eine Fake-Browser-Session
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
+        # 1. Standard Initialisierung - yfinance regelt Session intern via curl_cffi (wenn installiert)
+        stock = yf.Ticker(ticker)
         
-        # 2. Wir übergeben die Session an yfinance
-        stock = yf.Ticker(ticker, session=session)
-        
-        # 3. Download
+        # 2. Download
         df = stock.history(period="max", interval="1d")
         
         if df.empty: 
             return None, None, None, None
 
-        # Indikatoren (berechnet auf der vollen Historie für Genauigkeit)
+        # Indikatoren
         df['EMA_50'] = ta.ema(df['Close'], length=50)
         df['SMA_200'] = ta.sma(df['Close'], length=200)
         df['RSI'] = ta.rsi(df['Close'], length=14)
@@ -249,7 +244,6 @@ def get_data_and_indicators(ticker, api_key, company_name):
 
         return df, stock.info, news_list, used_ticker_for_news
     except Exception as e:
-        # Debugging für die Cloud
         return None, f"Error: {str(e)}", None, None
 
 def calculate_smart_score(df, news_list):
@@ -404,7 +398,7 @@ if selected_ticker and st.session_state.analysis_active:
         # DEBUG: Wenn info ein String ist (Fehlermeldung), zeigen wir sie an.
         if isinstance(info, str) and "Error" in info:
              st.error(f"❌ Technischer Fehler bei der Datenabfrage: {info}")
-             st.warning("⚠️ Cloud-Sperre erkannt. Die App nutzt jetzt einen 'Stealth Mode', aber manchmal hilft nur 2 Minuten warten.")
+             st.info("ℹ️ Tipp für die Cloud: yfinance braucht manchmal 'curl_cffi' in den requirements.txt")
         
         elif df is not None and not df.empty:
             raw_score, confidence, pattern_list, cats = calculate_smart_score(df, news_data)
