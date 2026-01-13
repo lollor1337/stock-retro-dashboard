@@ -7,3 +7,4 @@ textblob
 finnhub-python
 numpy
 lxml
+requests
